@@ -95,8 +95,8 @@ async function getEventFromPass(db, messageContent) {
 async function checkCodeForEventUsername(db, event_id, username) {
   const now = new Date();
   const res = await db
-    .task(async (t) => {
-      
+    .txIf(async (t) => {
+
       const event = await t.one(
         "SELECT is_whitelisted FROM events where id = $1",
         [event_id]
@@ -112,13 +112,14 @@ async function checkCodeForEventUsername(db, event_id, username) {
       }
 
       await t.none(
-        "SELECT * FROM codes WHERE event_id = $1 AND username = $2::text",
+        "SELECT * FROM codes WHERE event_id = $1 AND username = $2::text FOR UPDATE",
         [event_id, username]
       );
-      const code = await t.one(
-        "UPDATE codes SET username = $1, claimed_date = $3::timestamp WHERE code in (SELECT code FROM codes WHERE event_id = $2 AND username IS NULL ORDER BY RANDOM() LIMIT 1) RETURNING code",
-        [username, event_id, now]
-      );
+      const code = await t.txIf(async t2 => await t.one(
+          "UPDATE codes SET username = $1, claimed_date = $3::timestamp WHERE code in (SELECT code FROM codes WHERE event_id = $2 AND username IS NULL ORDER BY RANDOM() LIMIT 1) RETURNING code",
+          [username, event_id, now]
+      ))
+     console.log(code);
       console.log(`[DB] checking event: ${event_id}, user: ${username} `);
       return code;
     })
